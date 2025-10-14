@@ -1,5 +1,5 @@
 import { getRedisClient } from "./redis-client";
-import { Album } from "./music-cache";
+import { Album } from "./music-storage";
 
 const client = getRedisClient();
 

@@ -6,6 +6,7 @@ import { validateSession } from '../auth/lib/auth-client';
 interface UserInfo {
 	id: string;
 	username: string;
+	name: string;
 	createdAt: string;
 }
 
@@ -50,7 +51,7 @@ export default function UserInfo() {
 
 	return (
 		<div className="flex flex-col items-center gap-4">
-			<p>Logged in as: <span className="font-semibold">{user.username}</span></p>
+			<p>Logged in as: <span className="font-semibold">{user.name}</span> (@{user.username})</p>
 			<a
 				href="/api/auth/session"
 				className="text-sm text-gray-500 hover:text-gray-700"

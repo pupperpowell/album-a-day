@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "bun:test";
-import { MusicCache, ReleaseGroup, Album } from "../src/app/lib/music-cache";
+import { MusicStorage, ReleaseGroup, Album } from "../src/app/lib/music-storage";
 
 describe("Release Group Cache", () => {
   const testReleaseGroup: ReleaseGroup = {
@@ -24,20 +24,20 @@ describe("Release Group Cache", () => {
 
   beforeAll(async () => {
     // Clean up any existing test data
-    await MusicCache.invalidateAlbum(testAlbum.id);
+    await MusicStorage.invalidateAlbum(testAlbum.id);
   });
 
   afterAll(async () => {
     // Clean up test data
-    await MusicCache.invalidateAlbum(testAlbum.id);
+    await MusicStorage.invalidateAlbum(testAlbum.id);
   });
 
   it("should cache and retrieve release groups", async () => {
     // Cache the release group
-    await MusicCache.cacheReleaseGroup(testReleaseGroup);
+    await MusicStorage.cacheReleaseGroup(testReleaseGroup);
     
     // Retrieve the cached release group
-    const cached = await MusicCache.getCachedReleaseGroup(testReleaseGroup.id);
+    const cached = await MusicStorage.getCachedReleaseGroup(testReleaseGroup.id);
     
     expect(cached).not.toBeNull();
     expect(cached?.id).toBe(testReleaseGroup.id);
@@ -47,10 +47,10 @@ describe("Release Group Cache", () => {
 
   it("should cache and retrieve release groups by MBID", async () => {
     // Cache the release group by MBID
-    await MusicCache.cacheReleaseGroupByMBID(testReleaseGroup.musicBrainzId!, testReleaseGroup);
+    await MusicStorage.cacheReleaseGroupByMBID(testReleaseGroup.musicBrainzId!, testReleaseGroup);
     
     // Retrieve the cached release group by MBID
-    const cached = await MusicCache.getCachedReleaseGroupByMBID(testReleaseGroup.musicBrainzId!);
+    const cached = await MusicStorage.getCachedReleaseGroupByMBID(testReleaseGroup.musicBrainzId!);
     
     expect(cached).not.toBeNull();
     expect(cached?.id).toBe(testReleaseGroup.id);
@@ -59,10 +59,10 @@ describe("Release Group Cache", () => {
 
   it("should cache and retrieve releases for a release group", async () => {
     // Cache releases for the release group
-    await MusicCache.cacheReleaseGroupReleases(testReleaseGroup.musicBrainzId!, [testAlbum]);
+    await MusicStorage.cacheReleaseGroupReleases(testReleaseGroup.musicBrainzId!, [testAlbum]);
     
     // Retrieve the cached releases
-    const cachedReleases = await MusicCache.getCachedReleaseGroupReleases(testReleaseGroup.musicBrainzId!);
+    const cachedReleases = await MusicStorage.getCachedReleaseGroupReleases(testReleaseGroup.musicBrainzId!);
     
     expect(cachedReleases).not.toBeNull();
     expect(cachedReleases!.length).toBe(1);
@@ -73,7 +73,7 @@ describe("Release Group Cache", () => {
 
 
   it("should include release groups in cache statistics", async () => {
-    const stats = await MusicCache.getCacheStats();
+    const stats = await MusicStorage.getCacheStats();
     
     expect(stats.releaseGroups).toBeDefined();
     expect(typeof stats.releaseGroups).toBe("number");

@@ -6,6 +6,7 @@ const client = getRedisClient();
 export interface User {
   id: string;
   username: string;
+  name: string;
   passwordHash: string;
   createdAt: string;
 }
@@ -49,7 +50,7 @@ export class AuthUtils {
   /**
    * Create a new user
    */
-  static async createUser(username: string, password: string): Promise<User> {
+  static async createUser(username: string, password: string, name: string): Promise<User> {
     // Check if username already exists
     const existingUser = await this.getUserByUsername(username);
     if (existingUser) {
@@ -64,6 +65,7 @@ export class AuthUtils {
     const user: User = {
       id: userId,
       username,
+      name,
       passwordHash,
       createdAt,
     };

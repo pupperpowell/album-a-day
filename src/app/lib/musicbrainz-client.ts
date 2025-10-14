@@ -1,4 +1,6 @@
-import { Album, Artist, SearchResult, ReleaseGroup, MusicCache } from "./music-cache";
+import { Album, Artist, ReleaseGroup, MusicStorage } from "./music-storage";
+import { downloadAndSaveArtwork } from "./artwork-storage";
+import { NextResponse } from "next/server";
 
 const MUSICBRAINZ_API_BASE = "https://musicbrainz.org/ws/2/";
 const RELEASE_API_BASE = `${MUSICBRAINZ_API_BASE}release/`;
@@ -45,6 +47,13 @@ export interface MusicBrainzReleaseGroup {
     title: string;
     date?: string;
     "track-count": number;
+    "artist-credit"?: Array<{
+      name: string;
+      artist: {
+        id: string;
+        name: string;
+      };
+    }>;
   }>;
 }
 
@@ -147,7 +156,7 @@ export class MusicBrainzClient {
   /**
    * Search for release groups and artists
    */
-  static async search(query: string, limit: number = 10): Promise<SearchResult> {
+  static async search(query: string, limit: number = 10): Promise<any> {
     console.log(`[MUSICBRAINZ] Starting search for query: "${query}" with limit: ${limit}`);
     const encodedQuery = encodeURIComponent(query);
     const searchUrl = `${MUSICBRAINZ_API_BASE}release-group/?query=${encodedQuery}&limit=${limit}&fmt=json`;
@@ -169,57 +178,67 @@ export class MusicBrainzClient {
           if (artistCredit) {
             // Create release group object for caching
             const rgObject: ReleaseGroup = {
-              id: `mbid_${releaseGroup.id}`,
+              id: `${releaseGroup.id}`,
               title: releaseGroup.title,
               artist: artistCredit.name,
-              artistId: `mbid_${artistCredit.artist.id}`,
+              artistId: `${artistCredit.artist.id}`,
               type: releaseGroup.type || releaseGroup["primary-type"],
-              secondaryTypeIds: releaseGroup["secondary-type-list"],
               firstReleaseDate: releaseGroup["first-release-date"],
-              musicBrainzId: releaseGroup.id,
             };
 
-            // Cache the release group
-            await MusicCache.cacheReleaseGroup(rgObject);
-            await MusicCache.cacheReleaseGroupByMBID(releaseGroup.id, rgObject);
-
-            // Get releases for this release group
+            // Get releases for this release group to find one with cover art
             console.log(`[MUSICBRAINZ] Getting releases for release group: ${releaseGroup.id}`);
-            const releases = await this.getReleaseGroupReleases(releaseGroup.id, 1); // Get one representative release
-            console.log(`[MUSICBRAINZ] Found ${releases.length} releases for release group: ${releaseGroup.id}`);
-            if (releases.length > 0) {
-              const album = releases[0];
-              // Use release group title instead of release title for consistency
-              album.title = releaseGroup.title;
-              album.releaseDate = album.releaseDate || releaseGroup["first-release-date"];
+            const releases = await this.getReleaseGroupReleases(
+              releaseGroup.id,
+              1, // Only get the first release for performance
+              artistCredit.name,
+              artistCredit.artist.id
+            );
 
+            if (releases.length > 0) {
+              // Use the first release (which should be the primary release)
+              const release = releases[0];
+              console.log(`[MUSICBRAINZ] Using release ${release.id} for release group ${releaseGroup.id}`);
+              
+              // Update the album with release information
+              const album: Album = {
+                id: `${release.id}`, // Use release ID as album ID
+                title: release.title,
+                artistName: release.artistName,
+                artistId: `${release.artistId}`,
+                releaseDate: release.releaseDate,
+				tracks: release.tracks,
+                releaseGroupId: `${releaseGroup.id}`,
+                coverArtUrl: release.coverArtUrl, // Use the cover art from the release
+              };
+
+              console.log(`[MUSICBRAINZ] Adding album to results: "${album.title}" by ${album.artistName}`);
               albums.push(album);
               
-              // Cache the mapping from release to release group
-              await MusicCache.cacheReleaseGroupReleases(`mbid_${releaseGroup.id}`, [album]);
-            }
-          }
-        }
+              // Cache the album
+              console.log(`[MUSICBRAINZ] Caching album for release ${release.id}`);
+              await MusicStorage.cacheAlbum(album);
+              console.log(`[MUSICBRAINZ] Album cached successfully`);
+            } else {
+              // Fallback: create album from release group data if no releases found
+              console.log(`[MUSICBRAINZ] No releases found for release group ${releaseGroup.id}, using release group data`);
+              const album: Album = {
+                id: `${releaseGroup.id}`, // Use release group ID as album ID
+                title: releaseGroup.title,
+                artistName: artistCredit.name,
+                artistId: `${artistCredit.artist.id}`,
+                releaseDate: releaseGroup["first-release-date"],
+                releaseGroupId: releaseGroup.id,
+              };
 
-        // Fetch cover art URLs in parallel
-        const releaseIds = albums.map(album => album.musicBrainzId).filter(Boolean) as string[];
-        if (releaseIds.length > 0) {
-          try {
-            const coverArtMap = await this.getCoverArtUrls(releaseIds);
-            
-            // Assign cover art URLs to albums
-            albums.forEach((album) => {
-              const mbid = album.musicBrainzId;
-              if (mbid && coverArtMap.has(mbid)) {
-                const coverArtUrl = coverArtMap.get(mbid);
-                if (coverArtUrl) {
-                  album.coverArtUrl = coverArtUrl;
-                }
-              }
-            });
-          } catch (error) {
-            console.warn("Failed to fetch cover art in parallel:", error);
-            // Continue without cover art if parallel fetching fails
+              console.log(`[MUSICBRAINZ] Adding fallback album to results: "${album.title}" by ${album.artistName}`);
+              albums.push(album);
+              
+              // Cache the album
+              console.log(`[MUSICBRAINZ] Caching fallback album for release group ${releaseGroup.id}`);
+              await MusicStorage.cacheAlbum(album);
+              console.log(`[MUSICBRAINZ] Fallback album cached successfully`);
+            }
           }
         }
       }
@@ -228,11 +247,10 @@ export class MusicBrainzClient {
       if (data.artists) {
         for (const artist of data.artists) {
           const artistData: Artist = {
-            id: `mbid_${artist.id}`,
+            id: `${artist.id}`,
             name: artist.name,
             country: artist.country,
-            disambiguation: artist.disambiguation,
-            musicBrainzId: artist.id,
+            disambiguation: artist.disambiguation
           };
           artists.push(artistData);
         }
@@ -254,7 +272,7 @@ export class MusicBrainzClient {
   /**
    * Search for releases and artists without cover art (faster)
    */
-  static async searchBasic(query: string, limit: number = 10): Promise<SearchResult> {
+  static async searchBasic(query: string, limit: number = 10): Promise<any> {
     const encodedQuery = encodeURIComponent(query);
     const searchUrl = `${MUSICBRAINZ_API_BASE}release/?query=${encodedQuery}&limit=${limit}&fmt=json`;
     
@@ -270,13 +288,11 @@ export class MusicBrainzClient {
           const artistCredit = release["artist-credit"]?.[0];
           if (artistCredit) {
             const album: Album = {
-              id: `mbid_${release.id}`,
+              id: `${release.id}`,
               title: release.title,
-              artist: artistCredit.name,
-              artistId: `mbid_${artistCredit.artist.id}`,
-              releaseDate: release.date,
-              trackCount: release["track-count"],
-              musicBrainzId: release.id,
+			  artistName: artistCredit.name,
+              artistId: `${artistCredit.artist.id}`,
+              releaseDate: release.date
             };
 
             albums.push(album);
@@ -288,11 +304,10 @@ export class MusicBrainzClient {
       if (data.artists) {
         for (const artist of data.artists) {
           const artistData: Artist = {
-            id: `mbid_${artist.id}`,
+            id: `${artist.id}`,
             name: artist.name,
             country: artist.country,
             disambiguation: artist.disambiguation,
-            musicBrainzId: artist.id,
           };
           artists.push(artistData);
         }
@@ -314,8 +329,8 @@ export class MusicBrainzClient {
    */
   static async enrichWithCoverArt(albums: Album[]): Promise<void> {
     const releaseIds = albums
-      .filter(album => album.musicBrainzId && !album.coverArtUrl)
-      .map(album => album.musicBrainzId!);
+      .filter(album => album.id && !album.coverArtUrl)
+      .map(album => album.id!);
     
     if (releaseIds.length === 0) {
       return;
@@ -326,7 +341,7 @@ export class MusicBrainzClient {
       
       // Assign cover art URLs to albums
       albums.forEach((album) => {
-        const mbid = album.musicBrainzId;
+        const mbid = album.id;
         if (mbid && coverArtMap.has(mbid)) {
           const coverArtUrl = coverArtMap.get(mbid);
           if (coverArtUrl) {
@@ -343,7 +358,7 @@ export class MusicBrainzClient {
    * Get release details by MusicBrainz ID
    */
   static async getRelease(mbid: string): Promise<Album | null> {
-    const releaseUrl = `${RELEASE_API_BASE}${mbid}?inc=artist-credits&fmt=json`;
+    const releaseUrl = `${RELEASE_API_BASE}${mbid}?inc=artist-credits,recordings&fmt=json`;
     
     try {
       const release = await this.makeRequest<MusicBrainzRelease>(releaseUrl);
@@ -354,13 +369,11 @@ export class MusicBrainzClient {
       }
 
       const album: Album = {
-        id: `mbid_${release.id}`,
+        id: `${release.id}`,
         title: release.title,
-        artist: artistCredit.name,
-        artistId: `mbid_${artistCredit.artist.id}`,
+        artistName: artistCredit.name,
+        artistId: `${artistCredit.artist.id}`,
         releaseDate: release.date,
-        trackCount: release["track-count"],
-        musicBrainzId: release.id,
         releaseGroupId: release["release-group"]?.id,
       };
 
@@ -391,11 +404,10 @@ export class MusicBrainzClient {
       const artist = await this.makeRequest<MusicBrainzArtist>(artistUrl);
       
       return {
-        id: `mbid_${artist.id}`,
+        id: `${artist.id}`,
         name: artist.name,
         country: artist.country,
         disambiguation: artist.disambiguation,
-        musicBrainzId: artist.id,
       };
     } catch (error) {
       console.error("Failed to get artist:", error);
@@ -419,13 +431,11 @@ export class MusicBrainzClient {
           const artistCredit = release["artist-credit"]?.[0];
           if (artistCredit) {
             const album: Album = {
-              id: `mbid_${release.id}`,
+              id: `${release.id}`,
               title: release.title,
-              artist: artistCredit.name,
-              artistId: `mbid_${artistCredit.artist.id}`,
+              artistName: artistCredit.name,
+              artistId: `${artistCredit.artist.id}`,
               releaseDate: release.date,
-              trackCount: release["track-count"],
-              musicBrainzId: release.id,
               releaseGroupId: release["release-group"]?.id,
             };
 
@@ -452,29 +462,42 @@ export class MusicBrainzClient {
   }
 
   /**
-   * Get cover art URL for a release (with caching)
+   * Get cover art URL for a release
    */
-  private static async getCoverArtUrl(mbid: string): Promise<string | null> {
+  static async getCoverArtUrl(mbid: string): Promise<string | null> {
     try {
-      // Check cache first
-      const cachedUrl = await MusicCache.getCachedCoverArt(mbid);
-      if (cachedUrl) {
-        return cachedUrl;
-      }
-
+      console.log(`[MUSICBRAINZ] Getting cover art URL for RELEASE MBID: ${mbid}`);
+      
       // First, get the cover art metadata to find the front image
       const metadataUrl = `${COVER_ART_ARCHIVE_BASE}/release/${mbid}`;
-      const response = await fetch(metadataUrl, {
-        headers: {
-          "Accept": "application/json",
-        },
-      });
+	  return metadataUrl;
+      console.log(`[MUSICBRAINZ] Fetching cover art metadata from: ${metadataUrl}`);
       
-      if (!response.ok) {
+      let response;
+      try {
+        response = await fetch(metadataUrl, {
+          headers: {
+            "Accept": "application/json",
+            "User-Agent": this.USER_AGENT,
+          },
+        });
+      } catch (fetchError) {
+        console.error(`[MUSICBRAINZ] Network error fetching cover art metadata for release ${mbid}:`, fetchError);
         return null;
       }
       
-      const data = await response.json();
+      if (!response.ok) {
+        console.warn(`[MUSICBRAINZ] Cover art API returned ${response.status} for release ${mbid}`);
+        return null;
+      }
+      
+      let data;
+      try {
+        data = await response.json();
+      } catch (parseError) {
+        console.error(`[MUSICBRAINZ] Failed to parse cover art JSON for release ${mbid}:`, parseError);
+        return null;
+      }
       
       // Find the front image
       const frontImage = data.images?.find((image: any) => image.front);
@@ -483,20 +506,40 @@ export class MusicBrainzClient {
       if (frontImage) {
         // Return the thumbnail URL (500px is a good balance)
         coverArtUrl = frontImage.thumbnails?.["500"] || frontImage.image;
+        console.log(`[MUSICBRAINZ] Found front cover art for release ${mbid}: ${coverArtUrl}`);
       } else if (data.images && data.images.length > 0) {
         // If no front image is marked, try to get the first image
         const firstImage = data.images[0];
         coverArtUrl = firstImage.thumbnails?.["500"] || firstImage.image;
+        console.log(`[MUSICBRAINZ] Using first available cover art for release ${mbid}: ${coverArtUrl}`);
+      } else {
+        console.log(`[MUSICBRAINZ] No cover art images found for release ${mbid}`);
+      }
+
+      let finalUrl = coverArtUrl;
+      
+      if (coverArtUrl) {
+        // Try to download and save to local filesystem
+        console.log(`[MUSICBRAINZ] Attempting to download artwork for release ${mbid} from ${coverArtUrl}`);
+        try {
+          const localPath = await downloadAndSaveArtwork(mbid, coverArtUrl);
+          if (localPath) {
+            finalUrl = localPath;
+            console.log(`[MUSICBRAINZ] Successfully saved local artwork for release ${mbid}: ${localPath}`);
+          } else {
+            console.log(`[MUSICBRAINZ] Failed to download artwork for release ${mbid}, using external URL: ${coverArtUrl}`);
+          }
+        } catch (downloadError) {
+          console.error(`[MUSICBRAINZ] Error downloading artwork for release ${mbid}:`, downloadError);
+          // Continue with external URL if download fails
+        }
       }
       
-      // Cache the result (even if null, to avoid repeated failed requests)
-      await MusicCache.cacheCoverArt(mbid, coverArtUrl || "");
-      
-      return coverArtUrl;
+      return finalUrl;
     } catch (error) {
-      console.error("Failed to get cover art URL:", error);
+      console.error(`[MUSICBRAINZ] Unexpected error getting cover art for release ${mbid}:`, error);
       // Cache the failure to avoid repeated failed requests
-      await MusicCache.cacheCoverArt(mbid, "");
+     
       return null;
     }
   }
@@ -544,14 +587,12 @@ export class MusicBrainzClient {
       }
 
       const rgObject: ReleaseGroup = {
-        id: `mbid_${releaseGroup.id}`,
+        id: `${releaseGroup.id}`,
         title: releaseGroup.title,
         artist: artistCredit.name,
-        artistId: `mbid_${artistCredit.artist.id}`,
+        artistId: `${artistCredit.artist.id}`,
         type: releaseGroup.type || releaseGroup["primary-type"],
-        secondaryTypeIds: releaseGroup["secondary-type-list"],
         firstReleaseDate: releaseGroup["first-release-date"],
-        musicBrainzId: releaseGroup.id,
       };
 
       return rgObject;
@@ -564,33 +605,62 @@ export class MusicBrainzClient {
   /**
    * Get releases for a release group
    */
-  static async getReleaseGroupReleases(releaseGroupId: string, limit: number = 5): Promise<Album[]> {
-    const releasesUrl = `${RELEASE_GROUP_API_BASE}${releaseGroupId}?inc=url-rels&fmt=json`;
+  static async getReleaseGroupReleases(releaseGroupId: string, limit: number = 5, artistName?: string, artistId?: string): Promise<Album[]> {
+    const releasesUrl = `${RELEASE_GROUP_API_BASE}${releaseGroupId}?inc=releases&fmt=json`;
     
-	// https://musicbrainz.org/ws/2/release-group/4cac4f58-d2f2-3d71-92ec-187409d71f09?inc=url-rels&fmt=json
+    console.log(`[MUSICBRAINZ] Getting releases for release group ${releaseGroupId} with URL: ${releasesUrl}`);
     try {
-      const data = await this.makeRequest<{ releases: MusicBrainzRelease[] }>(releasesUrl);
+      const data = await this.makeRequest<MusicBrainzReleaseGroup>(releasesUrl);
+      // console.log(`[MUSICBRAINZ] Release group response for ${releaseGroupId}:`, JSON.stringify(data, null, 2));
       
       const albums: Album[] = [];
       
       if (data.releases) {
-        for (const release of data.releases) {
-          const artistCredit = release["artist-credit"]?.[0];
-          if (artistCredit) {
-            const album: Album = {
-              id: `mbid_${release.id}`,
-              title: release.title,
-              artist: artistCredit.name,
-              artistId: `mbid_${artistCredit.artist.id}`,
-              releaseDate: release.date,
-              trackCount: release["track-count"],
-              musicBrainzId: release.id,
-              releaseGroupId: releaseGroupId,
-            };
+        console.log(`[MUSICBRAINZ] Found ${data.releases.length} releases in release group ${releaseGroupId}`);
+        
+        // Sort releases by date to get the earliest/most primary release first
+        const sortedReleases = data.releases.sort((a, b) => {
+          if (!a.date && !b.date) return 0;
+          if (!a.date) return 1;
+          if (!b.date) return -1;
+          return a.date.localeCompare(b.date);
+        });
 
-            albums.push(album);
+        // Take only the requested number of releases
+        const limitedReleases = sortedReleases.slice(0, limit);
+        
+        for (const release of limitedReleases) {
+          // For release group releases, we need to get artist info from the release group itself
+          // since the release objects don't include artist-credit in this API response
+          const album: Album = {
+            id: `${release.id}`,
+            title: release.title,
+            artistName: artistName || data.title, // Use provided artist name or fallback to release group title
+            artistId: artistId ? `${artistId}` : `${releaseGroupId}`, // Use provided artist ID or fallback
+            releaseDate: release.date,
+            releaseGroupId: releaseGroupId,
+          };
+
+          // Try to get cover art for this release
+          try {
+            console.log(`[MUSICBRAINZ] Attempting to get cover art for release ${release.id}`);
+            const coverArtUrl = await this.getCoverArtUrl(release.id);
+            if (coverArtUrl) {
+              album.coverArtUrl = coverArtUrl;
+              console.log(`[MUSICBRAINZ] Successfully got cover art for release ${release.id}: ${coverArtUrl}`);
+            } else {
+              console.log(`[MUSICBRAINZ] No cover art found for release ${release.id}`);
+            }
+          } catch (error) {
+            console.warn(`Failed to get cover art for release ${release.id}:`, error);
+            // Continue without cover art if it fails
           }
+
+          console.log(`[MUSICBRAINZ] Created album from release: "${album.title}" (ID: ${album.id})`);
+          albums.push(album);
         }
+      } else {
+        console.log(`[MUSICBRAINZ] No releases found in release group ${releaseGroupId}`);
       }
 
       return albums;
