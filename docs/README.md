@@ -4,7 +4,9 @@ This is a simple web app for people doing the "listen to one album a day" challe
 
 The source for album, artist, and cover artwork is the MusicBrainz API. Cover artwork is from the coverartarchive.org API, also by MusicBrainz in collaboration with the Internet Archive.
 
-When a user looks up an album or artist, the local Redis database is searched first and returns results. If there aren't many results, the MusicBrainz API is also called. Then results are cached to the local Redis database.
+Redis is used as the primary database for users, sessions, albums, artists, tracks, and user data. Album artwork is stored in the filesystem.
+
+When a user looks up an album or artist, the local Redis database is searched first and returns results. If there aren't many results, the MusicBrainz API is also called. Then results are saved to the local Redis database.
 
 ## Auth
 
@@ -50,7 +52,7 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 First, run the development server:
 
 ```bash
-bun dev
+bun --bun run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.

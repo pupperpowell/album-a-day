@@ -19,7 +19,10 @@ A daily album listening tracker where users listen to one album per day, rate it
 **Users**
 
 ```
-user:{username}
+user:{id}
+  - id
+  - username: string
+  - name: string
   - password: hashed_password
   - created_at: timestamp
 ```
@@ -37,15 +40,53 @@ user:sessions:{username}
   - Set of active session_ids for user
 ```
 
-**Albums (cached from MusicBrainz)**
+**Albums (saved to Redis from MusicBrainz)**
 
 ```
 album:{mbid}
+  - id: string
+  - title: string
+  - artistName: string (not "artist")
+  - artistId: string
+  - listens?: number
+  - releaseDate?: string (not "release_date")
+  - coverArtUrl?: string (external URL)
+  - localArtPath?: string (local filesystem path, not "artwork_path")
+  - tracks?: Track[]
+  - releaseGroupId?: string (MusicBrainz release group MBID)
+```
+
+**Tracks (stored in albums)**
+
+```
+Track interface:
+  - id: string
+  - title: string
+  - releaseId: string
+  - artistName: string
+  - artistID: string
+```
+
+**Release Groups**
+
+```
+release_group:{id}
+  - id: string
   - title: string
   - artist: string
-  - mbid: string (MusicBrainz ID)
-  - artwork_path: string (local filesystem path)
-  - release_date: string
+  - artistId: string
+  - type?: string (e.g., "Album", "Single", "EP")
+  - firstReleaseDate?: string
+```
+
+**Artists**
+
+```
+artist:{id} OR artist:mbid:{mbid}
+  - id: string
+  - name: string
+  - country?: string
+  - disambiguation?: string
 ```
 
 **Listening Entries**
@@ -67,7 +108,7 @@ FT.CREATE idx:albums
   ON HASH PREFIX 1 album:
   SCHEMA
     title TEXT SORTABLE
-    artist TEXT SORTABLE
+    artistName TEXT SORTABLE (not "artist")
 ```
 
 ### Album Search Flow
@@ -256,7 +297,8 @@ FT.SEARCH idx:albums "@title:{query}" LIMIT 0 20
 **Store Album:**
 
 ```
-HSET album:{mbid} title "Kid A" artist "Radiohead" mbid "xxx" artwork_path "/artwork/xxx.jpg"
+SET album:{id} '{"id":"xxx","title":"Kid A","artistName":"Radiohead","artistId":"yyy",...}'  (JSON storage, not hash)
+SET album:mbid:{mbid} '{"id":"xxx","title":"Kid A","artistName":"Radiohead","artistId":"yyy",...}'
 ```
 
 **Session Management:**
