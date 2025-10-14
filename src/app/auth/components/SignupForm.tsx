@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { signup } from '../lib/auth-client';
+import { signup, validateUsername } from '../lib/auth-client';
 
 interface SignupFormProps {
 	onError?: (error: string) => void;
@@ -12,22 +12,30 @@ export default function SignupForm({ onError }: SignupFormProps) {
 	const [username, setUsername] = useState('');
 	const [password, setPassword] = useState('');
 	const [confirmPassword, setConfirmPassword] = useState('');
+	const [name, setName] = useState('');
 	const [isLoading, setIsLoading] = useState(false);
 	const [fieldErrors, setFieldErrors] = useState<{
 		username?: string;
 		password?: string;
 		confirmPassword?: string;
+		name?: string;
 	}>({});
 
 	const router = useRouter();
 
 	const validateForm = () => {
-		const errors: { username?: string; password?: string; confirmPassword?: string } = {};
+		const errors: { username?: string; password?: string; confirmPassword?: string; name?: string } = {};
 
-		if (!username.trim()) {
-			errors.username = 'Username is required';
+		// Validate username using the auth client validation function
+		const usernameValidation = validateUsername(username);
+		if (!usernameValidation.isValid) {
+			errors.username = usernameValidation.error;
 		} else if (username.length < 3) {
 			errors.username = 'Username must be at least 3 characters long';
+		}
+
+		if (!name.trim()) {
+			errors.name = 'Name is required';
 		}
 
 		if (!password.trim()) {
@@ -57,7 +65,7 @@ export default function SignupForm({ onError }: SignupFormProps) {
 		setFieldErrors({});
 
 		try {
-			const result = await signup(username, password);
+			const result = await signup(username, password, name);
 
 			if (result.success) {
 				// Redirect to home page on successful signup
@@ -73,15 +81,17 @@ export default function SignupForm({ onError }: SignupFormProps) {
 		}
 	};
 
-	const handleInputChange = (field: 'username' | 'password' | 'confirmPassword') => (e: React.ChangeEvent<HTMLInputElement>) => {
+	const handleInputChange = (field: 'username' | 'password' | 'confirmPassword' | 'name') => (e: React.ChangeEvent<HTMLInputElement>) => {
 		const value = e.target.value;
 
 		if (field === 'username') {
 			setUsername(value);
 		} else if (field === 'password') {
 			setPassword(value);
-		} else {
+		} else if (field === 'confirmPassword') {
 			setConfirmPassword(value);
+		} else if (field === 'name') {
+			setName(value);
 		}
 
 		// Clear field error when user starts typing
@@ -93,6 +103,24 @@ export default function SignupForm({ onError }: SignupFormProps) {
 	return (
 		<form onSubmit={handleSubmit} className="space-y-4">
 			<div>
+				<label htmlFor="signup-name" className="block text-sm font-medium text-gray-700 mb-1">
+					Name
+				</label>
+				<input
+					type="text"
+					id="signup-name"
+					value={name}
+					onChange={handleInputChange('name')}
+					className={`w-full px-3 py-2 text-black border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${fieldErrors.name ? 'border-red-500' : 'border-gray-300'
+						}`}
+					disabled={isLoading}
+				/>
+				{fieldErrors.name && (
+					<p className="mt-1 text-sm text-red-600">{fieldErrors.name}</p>
+				)}
+			</div>
+
+			<div>
 				<label htmlFor="signup-username" className="block text-sm font-medium text-gray-700 mb-1">
 					Username
 				</label>
@@ -101,7 +129,7 @@ export default function SignupForm({ onError }: SignupFormProps) {
 					id="signup-username"
 					value={username}
 					onChange={handleInputChange('username')}
-					className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${fieldErrors.username ? 'border-red-500' : 'border-gray-300'
+					className={`w-full px-3 py-2 text-black border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${fieldErrors.username ? 'border-red-500' : 'border-gray-300'
 						}`}
 					disabled={isLoading}
 				/>
@@ -119,7 +147,7 @@ export default function SignupForm({ onError }: SignupFormProps) {
 					id="signup-password"
 					value={password}
 					onChange={handleInputChange('password')}
-					className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${fieldErrors.password ? 'border-red-500' : 'border-gray-300'
+					className={`w-full px-3 py-2 border text-black rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${fieldErrors.password ? 'border-red-500' : 'border-gray-300'
 						}`}
 					disabled={isLoading}
 				/>

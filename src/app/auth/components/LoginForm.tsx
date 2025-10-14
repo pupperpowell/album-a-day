@@ -87,7 +87,7 @@ export default function LoginForm({ onError }: LoginFormProps) {
 					id="username"
 					value={username}
 					onChange={handleInputChange('username')}
-					className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${fieldErrors.username ? 'border-red-500' : 'border-gray-300'
+					className={`w-full text-black px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${fieldErrors.username ? 'border-red-500' : 'border-gray-300'
 						}`}
 					disabled={isLoading}
 				/>
@@ -105,7 +105,7 @@ export default function LoginForm({ onError }: LoginFormProps) {
 					id="password"
 					value={password}
 					onChange={handleInputChange('password')}
-					className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${fieldErrors.password ? 'border-red-500' : 'border-gray-300'
+					className={`w-full px-3 py-2 border text-black rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${fieldErrors.password ? 'border-red-500' : 'border-gray-300'
 						}`}
 					disabled={isLoading}
 				/>
