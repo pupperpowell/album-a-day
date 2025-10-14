@@ -3,12 +3,12 @@ import { AuthUtils } from "@/app/lib/auth-utils";
 
 export async function POST(request: NextRequest) {
   try {
-    const { username, password } = await request.json();
+    const { username, password, name } = await request.json();
 
     // Validate input
-    if (!username || !password) {
+    if (!username || !password || !name) {
       return NextResponse.json(
-        { error: "Username and password are required" },
+        { error: "Username, password, and name are required" },
         { status: 400 }
       );
     }
@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Create user
-    const user = await AuthUtils.createUser(username, password);
+    const user = await AuthUtils.createUser(username, password, name);
 
     // Create session
     const session = await AuthUtils.createSession(user.id, user.username);
@@ -32,6 +32,7 @@ export async function POST(request: NextRequest) {
       user: {
         id: user.id,
         username: user.username,
+        name: user.name,
         createdAt: user.createdAt,
       },
     });

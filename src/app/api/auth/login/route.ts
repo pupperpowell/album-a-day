@@ -31,6 +31,7 @@ export async function POST(request: NextRequest) {
       user: {
         id: user.id,
         username: user.username,
+        name: user.name,
         createdAt: user.createdAt,
       },
     });
