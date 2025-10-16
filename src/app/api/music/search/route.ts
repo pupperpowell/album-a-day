@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
 		}
 
 		// Parse and validate limit parameter
-		let limit = 10; // Default limit
+		let limit = 50; // Default limit
 		if (limitParam) {
 			const parsedLimit = parseInt(limitParam, 10);
 			if (isNaN(parsedLimit) || parsedLimit < 1 || parsedLimit > 50) {
@@ -34,7 +34,6 @@ export async function GET(request: NextRequest) {
 
 		// First, try Redis search
 		console.log(`[UNIFIED SEARCH] Trying Redis search first`);
-		if (false)
 		try {
 			const redisUrl = new URL(`/api/music/search/redis`, request.url);
 			redisUrl.searchParams.set("q", query);

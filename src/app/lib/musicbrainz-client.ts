@@ -65,21 +65,6 @@ export interface MusicBrainzArtist {
 }
 
 export interface MusicBrainzSearchResponse {
-  "release-groups"?: Array<{
-    id: string;
-    title: string;
-    "artist-credit": Array<{
-      name: string;
-      artist: {
-        id: string;
-        name: string;
-      };
-    }>;
-    type?: string;
-    "primary-type"?: string;
-    "secondary-type-list"?: string[];
-    "first-release-date"?: string;
-  }>;
   releases?: Array<{
     id: string;
     title: string;
@@ -92,6 +77,10 @@ export interface MusicBrainzSearchResponse {
     }>;
     date?: string;
     "track-count": number;
+    "release-group": {
+      id: string;
+      "primary-type": string;
+    };
   }>;
   artists?: Array<{
     id: string;
@@ -154,12 +143,12 @@ export class MusicBrainzClient {
   }
 
   /**
-   * Search for release groups and artists
+   * Search for releases and artists (uses single API call)
    */
-  static async search(query: string, limit: number = 10): Promise<any> {
+  static async search(query: string, limit: number = 50): Promise<any> {
     console.log(`[MUSICBRAINZ] Starting search for query: "${query}" with limit: ${limit}`);
     const encodedQuery = encodeURIComponent(query);
-    const searchUrl = `${MUSICBRAINZ_API_BASE}release-group/?query=${encodedQuery}&limit=${limit}&fmt=json`;
+    const searchUrl = `${MUSICBRAINZ_API_BASE}release/?query=${encodedQuery}&limit=${limit}&fmt=json`;
     console.log(`[MUSICBRAINZ] Search URL: ${searchUrl}`);
     
     try {
@@ -168,77 +157,54 @@ export class MusicBrainzClient {
       
       const albums: Album[] = [];
       const artists: Artist[] = [];
-      const releaseGroupIds: string[] = [];
 
-      // Process release groups
-      if (data["release-groups"]) {
-        console.log(`[MUSICBRAINZ] Processing ${data["release-groups"].length} release groups`);
-        for (const releaseGroup of data["release-groups"]) {
-          const artistCredit = releaseGroup["artist-credit"]?.[0];
+      // Process releases directly (filtering for Albums and EPs only)
+      if (data.releases) {
+        console.log(`[MUSICBRAINZ] Processing ${data.releases.length} releases`);
+        
+        // Filter releases to only include Albums and EPs
+        const filteredReleases = data.releases.filter(release => {
+          const primaryType = release["release-group"]?.["primary-type"];
+          return primaryType === "Album" || primaryType === "EP";
+        });
+        
+        console.log(`[MUSICBRAINZ] Filtered to ${filteredReleases.length} Albums and EPs`);
+        
+        for (const release of filteredReleases) {
+          const artistCredit = release["artist-credit"]?.[0];
           if (artistCredit) {
-            // Create release group object for caching
-            const rgObject: ReleaseGroup = {
-              id: `${releaseGroup.id}`,
-              title: releaseGroup.title,
-              artist: artistCredit.name,
+            // Create album directly from release data
+            const album: Album = {
+              id: `${release.id}`,
+              title: release.title,
+              artistName: artistCredit.name,
               artistId: `${artistCredit.artist.id}`,
-              type: releaseGroup.type || releaseGroup["primary-type"],
-              firstReleaseDate: releaseGroup["first-release-date"],
+              releaseDate: release.date,
+              releaseGroupId: release["release-group"]?.id,
             };
 
-            // Get releases for this release group to find one with cover art
-            console.log(`[MUSICBRAINZ] Getting releases for release group: ${releaseGroup.id}`);
-            const releases = await this.getReleaseGroupReleases(
-              releaseGroup.id,
-              1, // Only get the first release for performance
-              artistCredit.name,
-              artistCredit.artist.id
-            );
-
-            if (releases.length > 0) {
-              // Use the first release (which should be the primary release)
-              const release = releases[0];
-              console.log(`[MUSICBRAINZ] Using release ${release.id} for release group ${releaseGroup.id}`);
-              
-              // Update the album with release information
-              const album: Album = {
-                id: `${release.id}`, // Use release ID as album ID
-                title: release.title,
-                artistName: release.artistName,
-                artistId: `${release.artistId}`,
-                releaseDate: release.releaseDate,
-				tracks: release.tracks,
-                releaseGroupId: `${releaseGroup.id}`,
-                coverArtUrl: release.coverArtUrl, // Use the cover art from the release
-              };
-
-              console.log(`[MUSICBRAINZ] Adding album to results: "${album.title}" by ${album.artistName}`);
-              albums.push(album);
-              
-              // Cache the album
-              console.log(`[MUSICBRAINZ] Caching album for release ${release.id}`);
-              await MusicStorage.cacheAlbum(album);
-              console.log(`[MUSICBRAINZ] Album cached successfully`);
-            } else {
-              // Fallback: create album from release group data if no releases found
-              console.log(`[MUSICBRAINZ] No releases found for release group ${releaseGroup.id}, using release group data`);
-              const album: Album = {
-                id: `${releaseGroup.id}`, // Use release group ID as album ID
-                title: releaseGroup.title,
-                artistName: artistCredit.name,
-                artistId: `${artistCredit.artist.id}`,
-                releaseDate: releaseGroup["first-release-date"],
-                releaseGroupId: releaseGroup.id,
-              };
-
-              console.log(`[MUSICBRAINZ] Adding fallback album to results: "${album.title}" by ${album.artistName}`);
-              albums.push(album);
-              
-              // Cache the album
-              console.log(`[MUSICBRAINZ] Caching fallback album for release group ${releaseGroup.id}`);
-              await MusicStorage.cacheAlbum(album);
-              console.log(`[MUSICBRAINZ] Fallback album cached successfully`);
+            // Try to get cover art for this release
+            try {
+              console.log(`[MUSICBRAINZ] Attempting to get cover art URL for release ${release.id}`);
+              const coverArtUrl = await this.getCoverArtUrl(release.id);
+              if (coverArtUrl) {
+                album.coverArtUrl = coverArtUrl;
+                console.log(`[MUSICBRAINZ] Successfully got cover art URL for release ${release.id}: ${coverArtUrl}`);
+              } else {
+                console.log(`[MUSICBRAINZ] No cover art URL found for release ${release.id}`);
+              }
+            } catch (error) {
+              console.warn(`Failed to get cover art for release ${release.id}:`, error);
+              // Continue without cover art if it fails
             }
+
+            console.log(`[MUSICBRAINZ] Adding album to results: "${album.title}" by ${album.artistName}`);
+            albums.push(album);
+            
+            // Cache the album
+            console.log(`[MUSICBRAINZ] Caching album for release ${release.id}`);
+            await MusicStorage.cacheAlbum(album);
+            console.log(`[MUSICBRAINZ] Album cached successfully`);
           }
         }
       }
@@ -272,7 +238,7 @@ export class MusicBrainzClient {
   /**
    * Search for releases and artists without cover art (faster)
    */
-  static async searchBasic(query: string, limit: number = 10): Promise<any> {
+  static async searchBasic(query: string, limit: number = 50): Promise<any> {
     const encodedQuery = encodeURIComponent(query);
     const searchUrl = `${MUSICBRAINZ_API_BASE}release/?query=${encodedQuery}&limit=${limit}&fmt=json`;
     
@@ -606,7 +572,7 @@ export class MusicBrainzClient {
    * Get releases for a release group
    */
   static async getReleaseGroupReleases(releaseGroupId: string, limit: number = 5, artistName?: string, artistId?: string): Promise<Album[]> {
-    const releasesUrl = `${RELEASE_GROUP_API_BASE}${releaseGroupId}?inc=releases&fmt=json`;
+    const releasesUrl = `${RELEASE_GROUP_API_BASE}${releaseGroupId}?inc=releases,recordings&fmt=json`;
     
     console.log(`[MUSICBRAINZ] Getting releases for release group ${releaseGroupId} with URL: ${releasesUrl}`);
     try {

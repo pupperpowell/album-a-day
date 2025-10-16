@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { MusicStorage, Album, SearchResult } from "@/app/lib/music-storage";
+import { MusicStorage, Album, SearchResult, Artist } from "@/app/lib/music-storage";
 
 export async function GET(request: NextRequest) {
   try {
@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Parse and validate limit parameter
-    let limit = 10; // Default limit
+    let limit = 50; // Default limit
     if (limitParam) {
       const parsedLimit = parseInt(limitParam, 10);
       if (isNaN(parsedLimit) || parsedLimit < 1 || parsedLimit > 50) {
@@ -31,39 +31,29 @@ export async function GET(request: NextRequest) {
       limit = parsedLimit;
     }
 
-    // Check cache first for exact match
-    console.log(`[REDIS SEARCH] Checking cache for exact search match`);
-    const cachedResults = await MusicStorage.getCachedSearchResults(query);
-    if (cachedResults && (cachedResults.albums.length > 0 || cachedResults.artists.length > 0)) {
-      console.log(`[REDIS SEARCH] Cache hit - found ${cachedResults.albums.length} albums, ${cachedResults.artists.length} artists`);
-      // Limit results as requested
-      const limitedAlbums = cachedResults.albums.slice(0, limit);
-      const limitedArtists = cachedResults.artists.slice(0, limit);
-      
-      return NextResponse.json({
-        success: true,
-        results: {
-          albums: limitedAlbums,
-          artists: limitedArtists,
-          total: cachedResults.total,
-        },
-        cached: true,
-      });
-    } else if (cachedResults) {
-      console.log(`[REDIS SEARCH] Cache hit but no results`);
-    }
-    console.log(`[REDIS SEARCH] Cache miss for exact match`);
-
-    // No results found in Redis
-    console.log(`[REDIS SEARCH] No results found in Redis cache`);
+    // Perform Redisearch on albums
+    console.log(`[REDIS SEARCH] Performing Redisearch on albums`);
+    const albums = await MusicStorage.searchAlbums(query, limit);
+    
+    // For now, we're only searching albums, not artists
+    const artists: Artist[] = [];
+    
+    // Create search result
+    const searchResult: SearchResult = {
+      albums,
+      artists,
+      total: albums.length + artists.length
+    };
+    
+    // Cache the results
+    await MusicStorage.cacheSearchResults(query, searchResult);
+    
+    console.log(`[REDIS SEARCH] Found ${albums.length} albums, ${artists.length} artists`);
+    
     return NextResponse.json({
       success: true,
-      results: {
-        albums: [],
-        artists: [],
-        total: 0,
-      },
-      cached: true,
+      results: searchResult,
+      cached: false,
     });
   } catch (error) {
     console.error("[REDIS SEARCH] Search error:", error);

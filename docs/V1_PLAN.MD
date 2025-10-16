@@ -2,7 +2,7 @@
 
 ## Overview
 
-A daily album listening tracker where users listen to one album per day, rate it, select a favorite track, and write notes. Each user gets a profile page featuring a calendar covered in album artworks, with clickable days revealing full listening details.
+A daily album ListenEvent tracker where users listen to one album per day, rate it, select a favorite track, and write notes. Each user gets a profile page featuring a calendar covered in album artworks, with clickable days revealing full listening details.
 
 ## Tech Stack
 
@@ -89,10 +89,10 @@ artist:{id} OR artist:mbid:{mbid}
   - disambiguation?: string
 ```
 
-**Listening Entries**
+**ListenEvent Entries**
 
 ```
-listening:{username}:{date}
+ListenEvent:{username}:{date}
   - album_mbid: string
   - date: YYYY-MM-DD
   - rating: float (0-10)
@@ -156,12 +156,12 @@ Username/password with session management:
 - `GET /api/albums/search?q={query}` - Search albums (Redis + MusicBrainz)
 - `GET /api/albums/{mbid}` - Get album details
 
-### Listening Entries
+### ListenEvent Entries
 
-- `POST /api/listening` - Add/update daily listening entry
-- `GET /api/listening/{username}` - Get all entries for user (for calendar)
-- `GET /api/listening/{username}/{date}` - Get specific day's entry
-- `DELETE /api/listening/{username}/{date}` - Remove entry (for re-listening)
+- `POST /api/ListenEvent` - Add/update daily ListenEvent entry
+- `GET /api/ListenEvent/{username}` - Get all entries for user (for calendar)
+- `GET /api/ListenEvent/{username}/{date}` - Get specific day's entry
+- `DELETE /api/ListenEvent/{username}/{date}` - Remove entry (for re-listening)
 
 ## Pages & Routes
 
@@ -210,7 +210,7 @@ Username/password with session management:
 - Edit button (if own profile)
 - Share button
 
-### 3. Re-listening
+### 3. Re-Listening
 
 - Allow deleting existing entry to mark day as "empty"
 - User can then log a new album for that day
@@ -234,8 +234,8 @@ Username/password with session management:
 ### 5. Profile Pages
 
 - URL: `https://albuma.day/{username}`
-- Page title: `{username} is listening to one album a day`
-- Shows public calendar of user's listening history
+- Page title: `{username} is ListenEvent to one album a day`
+- Shows public calendar of user's ListenEvent history
 - Visitors can click days to see same calendar view with expandable sidebar
 
 ### 6. Share Button
@@ -259,7 +259,7 @@ wrote {word_count} words: https://albuma.day/{username}/{album_number}
 **Rich Link Preview (OpenGraph meta tags):**
 
 ```html
-<meta property="og:title" content="{username}'s listening: {album.title}" />
+<meta property="og:title" content="{username}ListenEvent listened to {album.title}" />
 <meta property="og:description" content="{first 150 chars of notes}..." />
 <meta property="og:image" content="{artwork_url}" />
 ```
@@ -277,7 +277,7 @@ wrote {word_count} words: https://albuma.day/{username}/{album_number}
 
 - Base URL: `https://musicbrainz.org/ws/2/`
 - Rate limit: 1 request per second (implement delay)
-- User-Agent header required: `AppName/Version (contact@email.com)`
+- User-Agent header recommended: `AppName/Version (contact@email.com)`
 - Cover Art Archive: `https://coverartarchive.org/release/{mbid}/front`
 
 **Example Search Query:**
@@ -323,27 +323,28 @@ DEL session:{session_id_1} session:{session_id_2} ...
 DEL user:sessions:{username}
 ```
 
-**Store Listening Entry:**
+**Store ListenEvent Entry:**
 
 ```
-HSET listening:{username}:{date} album_mbid "xxx" date "2025-10-13" rating "8.5" favorite_track "Everything In Its Right Place" notes "Amazing atmosphere..."
+HSET ListenEvent:{username}:{date} album_mbid "xxx" date "2025-10-13" rating "8.5" favorite_track "Everything In Its Right Place" notes "Amazing atmosphere..."
 ```
 
 **Get User's All Entries:**
 
 ```
-KEYS listening:{username}:*
+KEYS ListenEvent:{username}:*
 ```
 
 ## Development Priorities
 
-1. Set up Next.js project with Redis connection (done)
-2. Implement authentication (signup/login) (done)
-3. Build album search with MusicBrainz integration
-4. Create listening entry CRUD operations
+1. ~~Set up Next.js project with Redis connection~~ (done)
+2. ~~Implement authentication (signup/login)~~ (done)
+3. ~~Build album search with MusicBrainz integration~~ (done)
+4. ~~Create ListenEvent entry CRUD operations~~ (done)
 5. Build calendar UI component
-6. Implement side panel with entry details
-7. Add streaming service links
+6. Implement CalendarAlbum component
+6. Implement NewListenPanel (left)
+6. Implement side panel with album entry details (right)
 8. Create share functionality
 9. Build landing page
 10. Add OpenGraph meta tags for rich previews
@@ -352,7 +353,8 @@ KEYS listening:{username}:*
 
 - User stats (total albums, average rating, genre breakdown)
 - Following other users
-- Discover page (recent listens from all users)
+- Add streaming service links
+- Discover page (recent listens + notes from all users)
 - Export data (JSON/CSV)
 - Dark mode
 - Custom themes

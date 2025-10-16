@@ -98,7 +98,7 @@ export default function MusicSearch() {
 		// Don't clear artwork states immediately - they'll be updated when new results come in
 
 		try {
-			const searchUrl = `/api/music/search?q=${encodeURIComponent(debouncedQuery)}&limit=10`;
+			const searchUrl = `/api/music/search?q=${encodeURIComponent(debouncedQuery)}&limit=50`;
 			console.log(`[FRONTEND] Fetching from: ${searchUrl}`);
 			const response = await fetch(searchUrl);
 
