@@ -30,6 +30,7 @@ export async function GET(request: NextRequest) {
 				);
 			}
 			limit = parsedLimit;
+			limit = 50;
 		}
 
 		// First, try Redis search
@@ -71,6 +72,7 @@ export async function GET(request: NextRequest) {
 
 		// If Redis didn't find results or failed, try MusicBrainz search
 		console.log(`[UNIFIED SEARCH] Trying MusicBrainz search`);
+		if (false)
 		try {
 			const musicbrainzUrl = new URL(
 				`/api/music/search/musicbrainz`,

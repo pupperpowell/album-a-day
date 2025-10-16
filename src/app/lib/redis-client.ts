@@ -6,7 +6,7 @@ class RedisManager {
   private isConnected: boolean = false;
 
   private constructor() {
-    const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
+    const redisUrl = Bun.env.REDIS_URL || "redis://192.168.0.42:6379";
     this.client = new RedisClient(redisUrl);
   }
 

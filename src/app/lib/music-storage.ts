@@ -58,7 +58,20 @@ export class MusicStorage {
    * Cache album data
    */
   static async cacheAlbum(album: Album): Promise<void> {
-    await client.set(`${this.ALBUM_PREFIX}${album.id}`, JSON.stringify(album));
+    const albumKey = `${this.ALBUM_PREFIX}${album.id}`;
+    const albumHashKey = `${this.ALBUM_PREFIX}hash:${album.id}`;
+    
+    // Store as JSON string for backward compatibility
+    await client.set(albumKey, JSON.stringify(album));
+    
+    // Store as separate hash for Redisearch indexing
+    await client.send("HSET", [
+      albumHashKey,
+      'title', album.title,
+      'artistName', album.artistName,
+      'id', album.id,
+      'artistId', album.artistId
+    ]);
   }
 
   /**
@@ -78,6 +91,16 @@ export class MusicStorage {
    */
   static async cacheAlbumByMBID(mbid: string, album: Album): Promise<void> {
     await client.set(`${this.ALBUM_PREFIX}mbid:${mbid}`, JSON.stringify(album));
+    
+    // Also create hash for Redisearch indexing
+    const albumHashKey = `${this.ALBUM_PREFIX}hash:${album.id}`;
+    await client.send("HSET", [
+      albumHashKey,
+      'title', album.title,
+      'artistName', album.artistName,
+      'id', album.id,
+      'artistId', album.artistId
+    ]);
   }
 
   /**
@@ -131,10 +154,48 @@ export class MusicStorage {
   }
 
   /**
+   * Create Redisearch index for albums if it doesn't exist
+   */
+  static async createAlbumIndex(): Promise<void> {
+    try {
+      console.log(`[REDIS SEARCH] Creating album search index`);
+      
+      // Create the index with title and artistName fields as text
+      // Use the hash prefix for indexing
+      await client.send("FT.CREATE", [
+        'album_idx',
+        'ON',
+        'HASH',
+        'PREFIX',
+        '1',
+        `${this.ALBUM_PREFIX}hash:`,
+        'SCHEMA',
+        'title',
+        'TEXT',
+        'artistName',
+        'TEXT'
+      ]);
+      
+      console.log(`[REDIS SEARCH] Album search index created successfully`);
+    } catch (error) {
+      // Index might already exist, which is fine
+      if (error instanceof Error && error.message.includes('already exists')) {
+        console.log(`[REDIS SEARCH] Album search index already exists`);
+      } else {
+        console.error(`[REDIS SEARCH] Error creating album index:`, error);
+        throw error;
+      }
+    }
+  }
+
+  /**
    * Perform fuzzy search on albums using Redisearch FT.SEARCH
    */
   static async searchAlbums(query: string, limit: number = 50): Promise<Album[]> {
     try {
+      // Try to create the index first (will be skipped if it already exists)
+      await this.createAlbumIndex();
+      
       // Escape special characters in the query for Redisearch
       const escapedQuery = query.replace(/[.<>!"(){}[\]^*~?:\\]/g, '\\$&');
       
@@ -168,14 +229,17 @@ export class MusicStorage {
         const id = result[i];
         const score = result[i + 1];
         
-        // Skip if this is not an album key
-        if (!id.startsWith(this.ALBUM_PREFIX)) {
+        // Skip if this is not an album hash key
+        if (!id.startsWith(`${this.ALBUM_PREFIX}hash:`)) {
           i += 1; // Skip the score
           continue;
         }
         
-        // Get the album data from Redis
-        const albumData = await client.get(id);
+        // Extract album ID from hash key
+        const albumId = id.replace(`${this.ALBUM_PREFIX}hash:`, '');
+        
+        // Get the album data from Redis using the original key
+        const albumData = await client.get(`${this.ALBUM_PREFIX}${albumId}`);
         if (albumData) {
           const album = JSON.parse(albumData) as Album;
           albums.push(album);
@@ -199,7 +263,8 @@ export class MusicStorage {
    */
   static async cacheSearchResults(query: string, results: SearchResult): Promise<void> {
     const cacheKey = `${this.SEARCH_PREFIX}${query.toLowerCase()}`;
-    await client.set(cacheKey, JSON.stringify(results), 'EX', 3600); // Cache for 1 hour
+    await client.set(cacheKey, JSON.stringify(results));
+    await client.send("EXPIRE", [cacheKey, '3600']); // Cache for 1 hour
   }
 
   /**
